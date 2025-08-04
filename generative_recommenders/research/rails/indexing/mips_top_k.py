@@ -70,6 +70,8 @@ class MIPSBruteForceTopK(MIPSTopKModule):
             Tuple of (top_k_scores x float, top_k_ids x int), both of shape (B, K,)
         """
         # (B, X,)
+        # print(f'query_embeddings, {query_embeddings.shape}')
+        # print(f'self._item_embeddings_t, {self._item_embeddings_t.shape}')
         all_logits = torch.mm(query_embeddings, self._item_embeddings_t)
         top_k_logits, top_k_indices = torch.topk(
             all_logits,

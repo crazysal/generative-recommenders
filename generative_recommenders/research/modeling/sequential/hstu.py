@@ -20,6 +20,55 @@ Actions Speak Louder than Words: Trillion-Parameter Sequential Transducers for G
 (https://arxiv.org/abs/2402.17152, ICML'24).
 """
 
+'''
+HSTU(
+  (_ndp_module): DotProductSimilarity()
+  (_embedding_module): LocalEmbeddingModule(
+    (_item_emb): Embedding(695763, 64, padding_idx=0)
+  )
+  (_input_features_preproc): LearnablePositionalEmbeddingInputFeaturesPreprocessor(
+    (_pos_emb): Embedding(61, 64)
+    (_emb_dropout): Dropout(p=0.5, inplace=False)
+  )
+  (_output_postproc): L2NormEmbeddingPostprocessor()
+  (_hstu): HSTUJagged(
+    (_attention_layers): ModuleList(
+      (0-3): 4 x SequentialTransductionUnitJagged(
+        (_rel_attn_bias): RelativeBucketedTimeAndPositionBasedBias()
+        (_o): Linear(in_features=64, out_features=64, bias=True)
+      )
+    )
+  )
+)
+HSTU-b4-h4-dqk16-dv16-lsilud0.5-ad0.0
+
+🧠 Model Summary:
+_embedding_module._item_emb.weight                           | [695763, 64] | 44528832 params
+_input_features_preproc._pos_emb.weight                      | [61, 64] | 3904 params
+_hstu._attention_layers.0._uvqk                              | [64, 256] | 16384 params
+_hstu._attention_layers.0._rel_attn_bias._ts_w               | [129] | 129 params
+_hstu._attention_layers.0._rel_attn_bias._pos_w              | [121] | 121 params
+_hstu._attention_layers.0._o.weight                          | [64, 64] | 4096 params
+_hstu._attention_layers.0._o.bias                            | [64] | 64 params
+_hstu._attention_layers.1._uvqk                              | [64, 256] | 16384 params
+_hstu._attention_layers.1._rel_attn_bias._ts_w               | [129] | 129 params
+_hstu._attention_layers.1._rel_attn_bias._pos_w              | [121] | 121 params
+_hstu._attention_layers.1._o.weight                          | [64, 64] | 4096 params
+_hstu._attention_layers.1._o.bias                            | [64] | 64 params
+_hstu._attention_layers.2._uvqk                              | [64, 256] | 16384 params
+_hstu._attention_layers.2._rel_attn_bias._ts_w               | [129] | 129 params
+_hstu._attention_layers.2._rel_attn_bias._pos_w              | [121] | 121 params
+_hstu._attention_layers.2._o.weight                          | [64, 64] | 4096 params
+_hstu._attention_layers.2._o.bias                            | [64] | 64 params
+_hstu._attention_layers.3._uvqk                              | [64, 256] | 16384 params
+_hstu._attention_layers.3._rel_attn_bias._ts_w               | [129] | 129 params
+_hstu._attention_layers.3._rel_attn_bias._pos_w              | [121] | 121 params
+_hstu._attention_layers.3._o.weight                          | [64, 64] | 4096 params
+_hstu._attention_layers.3._o.bias                            | [64] | 64 params
+
+🔢 Total Trainable Parameters: 44,615,912
+'''
+
 import abc
 import math
 from typing import Callable, Dict, List, Optional, Tuple, Union

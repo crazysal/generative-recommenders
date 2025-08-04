@@ -188,6 +188,18 @@ class DatasetV2(torch.utils.data.Dataset):
             "target_ratings": target_ratings,
             "target_timestamps": target_timestamps,
         }
+        # Graph construction from ordered item history
+        item_indices = list(range(history_length))
+        edges_src = item_indices[:-1]
+        edges_dst = item_indices[1:]
+
+        adj_matrix = torch.zeros((max_seq_len, max_seq_len), dtype=torch.float32)
+        for src, dst in zip(edges_src, edges_dst):
+            if src < max_seq_len and dst < max_seq_len:
+                adj_matrix[dst, src] = 1.0  # dst ← src edge (as in SR-GNN)
+                adj_matrix[src, dst] = 1.0  # Optional reverse edge
+
+        ret["adj_matrix"] = adj_matrix  # [N, N] for session graph
         return ret
 
 

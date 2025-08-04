@@ -22,6 +22,59 @@ we can utilize a Sampled Softmax loss proposed in Revisiting Neural Retrieval on
 (https://arxiv.org/abs/2306.04039, KDD'23) and Turning Dross Into Gold Loss: is BERT4Rec really
 better than SASRec? (https://arxiv.org/abs/2309.07602, RecSys'23), where the authors showed
 sampled softmax loss to significantly improved SASRec model quality.
+
+SASRec(
+  (_ndp_module): DotProductSimilarity()
+  (_embedding_module): LocalEmbeddingModule(
+    (_item_emb): Embedding(3953, 50, padding_idx=0)
+  )
+  (_input_features_preproc): LearnablePositionalEmbeddingInputFeaturesPreprocessor(
+    (_pos_emb): Embedding(211, 50)
+    (_emb_dropout): Dropout(p=0.2, inplace=False)
+  )
+  (_output_postproc): L2NormEmbeddingPostprocessor()
+  (attention_layers): ModuleList(
+    (0-1): 2 x MultiheadAttention(
+      (out_proj): NonDynamicallyQuantizableLinear(in_features=50, out_features=50, bias=True)
+    )
+  )
+  (forward_layers): ModuleList(
+    (0-1): 2 x StandardAttentionFF(
+      (_conv1d): Sequential(
+        (0): Conv1d(50, 50, kernel_size=(1,), stride=(1,))
+        (1): ReLU()
+        (2): Dropout(p=0.2, inplace=False)
+        (3): Conv1d(50, 50, kernel_size=(1,), stride=(1,))
+        (4): Dropout(p=0.2, inplace=False)
+      )
+    )
+  )
+)
+SASRec-d50-b2-h1-posi_d0.2-l2-ffn50-relu-d0.2
+
+🧠 Model Summary:
+_embedding_module._item_emb.weight                           | [3953, 50] | 197650 params
+_input_features_preproc._pos_emb.weight                      | [211, 50] | 10550 params
+attention_layers.0.in_proj_weight                            | [150, 50] | 7500 params
+attention_layers.0.in_proj_bias                              | [150] | 150 params
+attention_layers.0.out_proj.weight                           | [50, 50] | 2500 params
+attention_layers.0.out_proj.bias                             | [50] | 50 params
+attention_layers.1.in_proj_weight                            | [150, 50] | 7500 params
+attention_layers.1.in_proj_bias                              | [150] | 150 params
+attention_layers.1.out_proj.weight                           | [50, 50] | 2500 params
+attention_layers.1.out_proj.bias                             | [50] | 50 params
+forward_layers.0._conv1d.0.weight                            | [50, 50, 1] | 2500 params
+forward_layers.0._conv1d.0.bias                              | [50] | 50 params
+forward_layers.0._conv1d.3.weight                            | [50, 50, 1] | 2500 params
+forward_layers.0._conv1d.3.bias                              | [50] | 50 params
+forward_layers.1._conv1d.0.weight                            | [50, 50, 1] | 2500 params
+forward_layers.1._conv1d.0.bias                              | [50] | 50 params
+forward_layers.1._conv1d.3.weight                            | [50, 50, 1] | 2500 params
+forward_layers.1._conv1d.3.bias                              | [50] | 50 params
+
+🔢 Total Trainable Parameters: 238,800
+
+seq_embeddings, torch.Size([128, 211, 50])
 """
 
 from typing import Dict, Optional, Tuple

@@ -17,7 +17,7 @@
 import logging
 import os
 import random
-
+import datetime
 import time
 
 from datetime import date
@@ -65,7 +65,11 @@ from generative_recommenders.research.modeling.sequential.output_postprocessors 
 from generative_recommenders.research.modeling.similarity_utils import (
     get_similarity_function,
 )
-from generative_recommenders.research.trainer.data_loader import create_data_loader
+# from generative_recommenders.research.trainer.data_loader import create_data_loader
+from generative_recommenders.research.trainer.dataload import create_data_loader
+from generative_recommenders.research.trainer.collate_fn import graph_collate_fn
+from torch.utils.data.dataloader import default_collate
+
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 
@@ -93,6 +97,15 @@ def get_weighted_loss(
         cur_weighted_loss = aux_losses[key] * weight
         weighted_loss = weighted_loss + cur_weighted_loss
     return weighted_loss
+
+def print_model_summary(model: torch.nn.Module):
+    print("\n🧠 Model Summary:")
+    total_params = 0
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            print(f"{name:60} | {list(param.shape)} | {param.numel()} params")
+            total_params += param.numel()
+    print(f"\n🔢 Total Trainable Parameters: {total_params:,}\n")
 
 
 @gin.configurable
@@ -133,6 +146,7 @@ def train_fn(
     l2_norm_eps: float = 1e-6,
     enable_tf32: bool = False,
     random_seed: int = 42,
+    use_collate: Optional[str] = None,
 ) -> None:
     # to enable more deterministic results.
     random.seed(random_seed)
@@ -149,6 +163,14 @@ def train_fn(
         chronological=True,
         positional_sampling_ratio=positional_sampling_ratio,
     )
+    
+    
+    COLLATE_FN_REGISTRY = {
+        "graph_collate_fn": graph_collate_fn,
+        "default": default_collate,
+        None: default_collate,  # fallback
+    }
+    collate_fn_impl = COLLATE_FN_REGISTRY.get(use_collate, default_collate)
 
     train_data_sampler, train_data_loader = create_data_loader(
         dataset.train_dataset,
@@ -157,6 +179,7 @@ def train_fn(
         rank=rank,
         shuffle=True,
         drop_last=world_size > 1,
+        collate_fn=collate_fn_impl,
     )
     eval_data_sampler, eval_data_loader = create_data_loader(
         dataset.eval_dataset,
@@ -165,6 +188,7 @@ def train_fn(
         rank=rank,
         shuffle=True,  # needed for partial eval
         drop_last=world_size > 1,
+        collate_fn=collate_fn_impl,
     )
 
     model_debug_str = main_module
@@ -214,6 +238,9 @@ def train_fn(
         verbose=True,
     )
     model_debug_str = model.debug_str()
+    print(model)
+    print(model_debug_str)
+    print_model_summary(model)
 
     # loss
     loss_debug_str = loss_module
@@ -276,7 +303,7 @@ def train_fn(
         weight_decay=weight_decay,
     )
 
-    date_str = date.today().strftime("%Y-%m-%d")
+    date_str = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")#date.today().strftime("%Y-%m-%d")
     model_subfolder = f"{dataset_name}-l{max_sequence_length}"
     model_desc = (
         f"{model_subfolder}"
@@ -369,6 +396,8 @@ def train_fn(
                 past_embeddings=input_embeddings,
                 past_payloads=seq_features.past_payloads,
             )  # [B, X]
+            
+            # print(f'seq_embeddings, {seq_embeddings.shape}')
 
             supervision_ids = seq_features.past_ids
 
@@ -386,9 +415,15 @@ def train_fn(
                 negatives_sampler._item_emb = model.module._embedding_module._item_emb
 
             ar_mask = supervision_ids[:, 1:] != 0
+            if seq_embeddings.ndim == 3:
+                oe = seq_embeddings[:, :-1, :]  # [B, N-1, D]
+            elif seq_embeddings.ndim == 2:
+                oe = seq_embeddings  #  # [B, D]
+            else:
+                raise ValueError(f"Unexpected embedding shape: {seq_embeddings.shape}")
             loss, aux_losses = ar_loss(
                 lengths=seq_features.past_lengths,  # [B],
-                output_embeddings=seq_embeddings[:, :-1, :],  # [B, N-1, D]
+                output_embeddings=oe, 
                 supervision_ids=supervision_ids[:, 1:],  # [B, N-1]
                 supervision_embeddings=input_embeddings[:, 1:, :],  # [B, N - 1, D]
                 supervision_weights=ar_mask.float(),

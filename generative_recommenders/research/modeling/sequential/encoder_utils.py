@@ -32,6 +32,61 @@ from generative_recommenders.research.modeling.similarity_module import (
 from generative_recommenders.research.rails.similarities.module import SimilarityModule
 
 
+from generative_recommenders.research.modeling.mlp.mlp_baseline import MLPBaseline
+from generative_recommenders.research.modeling.graph.gcn import GCNBaseline
+
+@gin.configurable
+def gcn_encoder(
+    max_sequence_length: int,  # accepted for consistency
+    max_output_length: int,
+    embedding_module: EmbeddingModule,
+    similarity_module: SimilarityModule,
+    input_preproc_module: InputFeaturesPreprocessorModule,
+    output_postproc_module: OutputPostprocessorModule,
+    hidden_dim: int = 256,
+    dropout_rate: float = 0.1,
+    verbose: bool = False,
+) -> SequentialEncoderWithLearnedSimilarityModule:
+    return GCNBaseline(
+        max_sequence_len=max_sequence_length,
+        max_output_len=max_output_length,
+        embedding_dim=embedding_module.item_embedding_dim,
+        hidden_dim=hidden_dim,
+        dropout_rate=dropout_rate,
+        embedding_module=embedding_module,
+        similarity_module=similarity_module,
+        input_features_preproc_module=input_preproc_module,
+        output_postproc_module=output_postproc_module,
+        verbose=verbose,
+    )
+
+
+@gin.configurable
+def mlp_encoder(
+    max_sequence_length: int,  
+    max_output_length: int,    
+    embedding_module: EmbeddingModule,
+    similarity_module: SimilarityModule,
+    input_preproc_module: InputFeaturesPreprocessorModule,
+    output_postproc_module: OutputPostprocessorModule,
+    hidden_dim: int = 256,
+    dropout_rate: float = 0.1,
+    verbose: bool = False,
+) -> SequentialEncoderWithLearnedSimilarityModule:
+    return MLPBaseline(
+        max_sequence_len=max_sequence_length,
+        max_output_len=max_output_length,
+        embedding_dim=embedding_module.item_embedding_dim,
+        hidden_dim=hidden_dim,
+        dropout_rate=dropout_rate,
+        embedding_module=embedding_module,
+        similarity_module=similarity_module,
+        input_features_preproc_module=input_preproc_module,
+        output_postproc_module=output_postproc_module,
+        verbose=verbose,
+    )
+
+
 @gin.configurable
 def sasrec_encoder(
     max_sequence_length: int,
@@ -145,6 +200,27 @@ def get_sequential_encoder(
             activation_checkpoint=activation_checkpoint,
             verbose=verbose,
         )
+    elif module_type == "MLPBaseline":
+        model = mlp_encoder(
+            max_sequence_length=max_sequence_length,
+            max_output_length=max_output_length,
+            embedding_module=embedding_module,
+            similarity_module=interaction_module,
+            input_preproc_module=input_preproc_module,
+            output_postproc_module=output_postproc_module,
+            verbose=verbose,
+        )
+    elif module_type == "GCNBaseline":
+        model = gcn_encoder(
+            max_sequence_length=max_sequence_length,
+            max_output_length=max_output_length,
+            embedding_module=embedding_module,
+            similarity_module=interaction_module,
+            input_preproc_module=input_preproc_module,
+            output_postproc_module=output_postproc_module,
+            verbose=verbose,
+        )
+
     else:
         raise ValueError(f"Unsupported module_type {module_type}")
     return model
