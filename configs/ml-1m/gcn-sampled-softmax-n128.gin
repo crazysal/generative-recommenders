@@ -10,11 +10,14 @@ train_fn.local_batch_size = 84
 # Model architecture
 train_fn.main_module = "GCNBaseline"
 train_fn.item_embedding_dim = 50
-train_fn.dropout_rate = 0.2  # global dropout if used
+train_fn.dropout_rate = 0.2  # For input features or global dropout (optional)
 
-# GCN-specific encoder settings
-gcn_encoder.hidden_dim = 256
-gcn_encoder.dropout_rate = 0.1
+# GCN-specific encoder config (mapped in model constructor)
+train_fn.gcn_encoder.hidden_dim = 256         # Used in first GCN layer
+train_fn.gcn_encoder.dropout_rate = 0.1       # Applied after ReLU
+
+# Pooling strategy
+train_fn.pooling = "last"                     # Options: last, mean, sum
 
 # Training
 train_fn.num_epochs = 101
@@ -23,20 +26,22 @@ train_fn.weight_decay = 0
 train_fn.num_warmup_steps = 0
 train_fn.enable_tf32 = True
 
-# Embedding + regularization
+# Embedding modules
 train_fn.user_embedding_norm = "l2_norm"
 train_fn.item_l2_norm = True
 train_fn.l2_norm_eps = 1e-6
 
-# Loss function and sampling
+# Loss and sampling
 train_fn.loss_module = "SampledSoftmaxLoss"
 train_fn.num_negatives = 128
 train_fn.sampling_strategy = "local"
 train_fn.temperature = 0.05
 
+# Similarity / interaction head
+train_fn.interaction_module_type = "DotProduct"
+
 # Evaluation method
 train_fn.top_k_method = "MIPSBruteForceTopK"
-train_fn.interaction_module_type = "DotProduct"
 
 # DataLoader
 create_data_loader.prefetch_factor = 128
