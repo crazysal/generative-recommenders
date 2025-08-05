@@ -18,52 +18,8 @@ from generative_recommenders.research.modeling.similarity_module import (
 )
 from generative_recommenders.research.rails.similarities.module import SimilarityModule
 
-'''
-GCNBaseline(
-  (_ndp_module): DotProductSimilarity()
-  (_embedding_module): LocalEmbeddingModule(
-    (_item_emb): Embedding(3953, 50, padding_idx=0)
-  )
-  (_input_features_preproc): LearnablePositionalEmbeddingInputFeaturesPreprocessor(
-    (_pos_emb): Embedding(211, 50)
-    (_emb_dropout): Dropout(p=0.2, inplace=False)
-  )
-  (_output_postproc): L2NormEmbeddingPostprocessor()
-  (gcn_layers): ModuleList(
-    (0): Linear(in_features=50, out_features=256, bias=True)
-    (1): Linear(in_features=256, out_features=50, bias=True)
-  )
-  (relu): ReLU()
-  (dropout): Dropout(p=0.1, inplace=False)
-)
-GCNBaseline(embedding_dim=50, hidden_dim=256, pooling='last')
 
-🧠 Model Summary:
-_embedding_module._item_emb.weight                           | [3953, 50] | 197650 params
-_input_features_preproc._pos_emb.weight                      | [211, 50] | 10550 params
-gcn_layers.0.weight                                          | [256, 50] | 12800 params
-gcn_layers.0.bias                                            | [256] | 256 params
-gcn_layers.1.weight                                          | [50, 256] | 12800 params
-gcn_layers.1.bias                                            | [50] | 50 params
-
-🔢 Total Trainable Parameters: 234,106
-
-'''
-
-def normalize_adjacency(adj: torch.Tensor) -> torch.Tensor:
-    """
-    Symmetric normalization of adjacency matrix: D^{-1/2} A D^{-1/2}
-    adj: [B, N, N] unnormalized adjacency matrix
-    """
-    deg = adj.sum(dim=-1)  # [B, N]
-    deg_inv_sqrt = deg.pow(-0.5)
-    deg_inv_sqrt = torch.nan_to_num(deg_inv_sqrt, nan=0.0, posinf=0.0, neginf=0.0)
-    deg_inv_sqrt = deg_inv_sqrt.unsqueeze(-1)  # [B, N, 1]
-    return adj * deg_inv_sqrt * deg_inv_sqrt.transpose(1, 2)  # [B, N, N]
-
-
-
-def get_gcn_current_embeddings(
+def get_last_valid_token_embedding(
     lengths: torch.Tensor,
     encoded_embeddings: torch.Tensor,
 ) -> torch.Tensor:
@@ -79,10 +35,11 @@ def get_gcn_current_embeddings(
     idx = (lengths - 1).clamp(min=0).view(-1, 1, 1).expand(-1, 1, D)  # [B, 1, D]
     return encoded_embeddings.gather(dim=1, index=idx).squeeze(1)  # [B, D]
 
-class GCNBaseline(SequentialEncoderWithLearnedSimilarityModule):
+
+class SRGNNBaseline(SequentialEncoderWithLearnedSimilarityModule):
     """
-    Graph Convolutional Network (GCN) baseline for session-based recommendation.
-    Applies symmetric normalized adjacency for message passing over item sequences.
+    SR-GNN baseline for session-based recommendation.
+    Uses GRU-based gated graph neural networks for message passing over session graphs.
     """
 
     def __init__(
@@ -103,6 +60,7 @@ class GCNBaseline(SequentialEncoderWithLearnedSimilarityModule):
 
         self._max_sequence_length = max_sequence_len + max_output_len
         self._embedding_dim = embedding_dim
+        self._hidden_dim = hidden_dim
         self._pooling = pooling.lower()
         self._verbose = verbose
 
@@ -110,18 +68,20 @@ class GCNBaseline(SequentialEncoderWithLearnedSimilarityModule):
         self._input_features_preproc = input_features_preproc_module
         self._output_postproc = output_postproc_module
 
-        self.gcn_layers = nn.ModuleList([
-            nn.Linear(embedding_dim, hidden_dim),
-            nn.Linear(hidden_dim, embedding_dim),
-        ])
-        self.relu = nn.ReLU()
+        # Linear before GRU to match hidden_dim
+        self.linear_in = nn.Linear(embedding_dim, hidden_dim)
+        self.gru_cell = nn.GRUCell(hidden_dim, hidden_dim)
+
+        # Linear after GRU to restore original embedding dimension
+        self.linear_out = nn.Linear(hidden_dim, embedding_dim)
+
         self.dropout = nn.Dropout(p=dropout_rate)
 
     def debug_str(self) -> str:
         return (
-            f"GCNBaseline("
+            f"SRGNNBaseline("
             f"embedding_dim={self._embedding_dim}, "
-            f"hidden_dim={self.gcn_layers[0].out_features}, "
+            f"hidden_dim={self._hidden_dim}, "
             f"pooling='{self._pooling}'"
             f")"
         )
@@ -129,37 +89,35 @@ class GCNBaseline(SequentialEncoderWithLearnedSimilarityModule):
     def get_item_embeddings(self, item_ids: torch.Tensor) -> torch.Tensor:
         return self._embedding_module.get_item_embeddings(item_ids)
 
-
     def _run_one_layer(
         self,
-        i: int,
-        x: torch.Tensor,          # [B, N, D]
-        adj: torch.Tensor,        # [B, N, N]
-        valid_mask: torch.Tensor  # [B, N] float mask
+        x: torch.Tensor,          # [B, N, D] input node features (embedding_dim)
+        adj: torch.Tensor,        # [B, N, N] adjacency matrix
+        valid_mask: torch.Tensor, # [B, N] float mask for valid tokens
     ) -> torch.Tensor:
         """
-        Run one GCN layer: normalize adjacency, message passing, transformation.
-
-        Args:
-            i: GCN layer index
-            x: [B, N, D] input features
-            adj: [B, N, N] adjacency matrix
-            valid_mask: [B, N] float mask for valid nodes
-
-        Returns:
-            [B, N, D] updated features
+        SR-GNN message passing + GRU-based node update.
         """
-        norm_adj = normalize_adjacency(adj)  # [B, N, N]
-        x = torch.bmm(norm_adj, x)           # message passing
-        x = self.gcn_layers[i](x)            # layer transformation
+        # 1. Linear transform input to hidden space
+        x_proj = self.linear_in(x)   # [B, N, hidden_dim]
 
-        if i < len(self.gcn_layers) - 1:
-            x = self.relu(x)
-            x = self.dropout(x)
+        # 2. Message passing: aggregate neighbor features
+        neighbor_agg = torch.bmm(adj, x_proj)  # [B, N, hidden_dim]
 
-        x = x * valid_mask.unsqueeze(-1)     # [B, N, D]
-        return x
+        # 3. GRU-style gated update: reshape and apply GRUCell
+        B, N, H = neighbor_agg.shape
+        x_flat = x_proj.view(B * N, H)
+        agg_flat = neighbor_agg.view(B * N, H)
+        updated = self.gru_cell(agg_flat, x_flat)  # [B*N, H]
+        updated = updated.view(B, N, H)
 
+        # 4. Project back to original embedding dim
+        x_out = self.linear_out(updated)  # [B, N, embedding_dim]
+        x_out = self.dropout(x_out)
+
+        # 5. Mask padded tokens
+        x_out = x_out * valid_mask.unsqueeze(-1)  # [B, N, D]
+        return x_out
 
     def generate_user_embeddings(
         self,
@@ -169,11 +127,9 @@ class GCNBaseline(SequentialEncoderWithLearnedSimilarityModule):
         past_payloads: Dict[str, torch.Tensor],
     ) -> torch.Tensor:
         """
-        Run GCN over the session graph with adjacency-based message passing.
-
-        Returns:
-            [B, N, D] final sequence embeddings
+        Run SR-GNN over the session graph with gated message passing using GRU.
         """
+        # 1. Input preprocessing (positional encoding, dropout, masking)
         past_lengths, x, valid_mask = self._input_features_preproc(
             past_lengths=past_lengths,
             past_ids=past_ids,
@@ -183,17 +139,16 @@ class GCNBaseline(SequentialEncoderWithLearnedSimilarityModule):
 
         adj = past_payloads.get("adj_matrix", None)
         if adj is None:
-            raise ValueError("GCNBaseline expects 'adj_matrix' in past_payloads")
+            raise ValueError("SRGNNBaseline expects 'adj_matrix' in past_payloads")
 
-        # Mask padded rows and cols in adjacency
-        valid_mask_flat = valid_mask.squeeze(-1).float()   # [B, N]
+        # 2. Remove padded tokens from contributing in graph
+        valid_mask_flat = valid_mask.squeeze(-1).float()  # [B, N]
         adj = adj * valid_mask_flat.unsqueeze(1) * valid_mask_flat.unsqueeze(2)  # [B, N, N]
 
-        # Run all GCN layers
-        for i in range(len(self.gcn_layers)):
-            x = self._run_one_layer(i, x, adj, valid_mask_flat)
+        # 3. Run gated graph update
+        x_encoded = self._run_one_layer(x, adj, valid_mask_flat)  # [B, N, D]
 
-        return self._output_postproc(x)  # [B, N, D]
+        return self._output_postproc(x_encoded)  # [B, N, D]
 
     def forward(
         self,
@@ -203,26 +158,13 @@ class GCNBaseline(SequentialEncoderWithLearnedSimilarityModule):
         past_payloads: Dict[str, torch.Tensor],
         batch_id: Optional[int] = None,
     ) -> torch.Tensor:
-        """
-        Forward pass of GCNBaseline.
-
-        Args:
-            past_lengths: [B] — actual lengths of each user sequence.
-            past_ids: [B, N] — item IDs in user history.
-            past_embeddings: [B, N, D] — precomputed item embeddings.
-            past_payloads: dict — expected to include:
-                - "adj_matrix": [B, N, N] — session-level adjacency matrices per sample.
-
-        Returns:
-            Tensor of shape [B, N, D] — GCN-encoded sequence embeddings.
-        """
         return self.generate_user_embeddings(
             past_lengths=past_lengths,
             past_ids=past_ids,
             past_embeddings=past_embeddings,
             past_payloads=past_payloads,
         )
-
+    
     def encode(
         self,
         past_lengths: torch.Tensor,
@@ -231,17 +173,21 @@ class GCNBaseline(SequentialEncoderWithLearnedSimilarityModule):
         past_payloads: Dict[str, torch.Tensor],
     ) -> torch.Tensor:
         """
-        Returns a pooled embedding representation of the user sequence.
+        Returns a pooled embedding representation of the user session graph.
+
+        SR-GNN performs message passing via gated GRU cells and returns an aggregate node embedding,
+        typically based on the last item (as in session-based GRNN literature).
 
         Args:
-            past_lengths: [B] x int
-            past_ids: [B, N] x int
-            past_embeddings: [B, N, D] x float
-            past_payloads: dict with keys like "adj_matrix" [B, N, N]
+            past_lengths: [B] — number of valid items per session
+            past_ids: [B, N] — item IDs in each session
+            past_embeddings: [B, N, D] — raw item embeddings
+            past_payloads: dict — must contain "adj_matrix": [B, N, N]
 
         Returns:
-            [B, D] pooled user embeddings
+            [B, D] — pooled session representation
         """
+        # 1. Run gated message passing over graph
         encoded_seq_embeddings = self.generate_user_embeddings(
             past_lengths,
             past_ids,
@@ -249,8 +195,46 @@ class GCNBaseline(SequentialEncoderWithLearnedSimilarityModule):
             past_payloads,
         )  # [B, N, D]
 
-        return self._pool(past_lengths, encoded_seq_embeddings)
+        # 2. Pooling mechanism (e.g., last, mean, max, etc.)
+        return self._pool(past_lengths, encoded_seq_embeddings)  # [B, D]
 
+    def _pool(self, lengths: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+        """
+        Pooling over the sequence dimension [B, N, D] → [B, D]
+        """
+        B, N, D = x.shape
+
+        if self._pooling == "last":
+            return get_last_valid_token_embedding(lengths, x)
+
+        elif self._pooling == "mean":
+            mask = torch.arange(N, device=lengths.device)[None, :] < lengths[:, None]
+            return (x * mask.unsqueeze(-1).float()).sum(1) / lengths.unsqueeze(1).clamp(min=1)
+
+        elif self._pooling == "sum":
+            mask = torch.arange(N, device=lengths.device)[None, :] < lengths[:, None]
+            return (x * mask.unsqueeze(-1).float()).sum(1)
+
+        elif self._pooling == "attention":
+            # Step 1: get query vector (last valid token per sequence) → [B, D]
+            q = get_last_valid_token_embedding(lengths, x)  # [B, D]
+
+            # Step 2: compute attention weights → [B, N]
+            attn_scores = (x * q.unsqueeze(1)).sum(dim=-1)  # dot product: q · k_i
+
+            # Mask out invalid tokens
+            mask = torch.arange(N, device=lengths.device)[None, :] < lengths[:, None]  # [B, N]
+            attn_scores[~mask] = float('-inf')
+
+            attn_weights = torch.softmax(attn_scores, dim=-1)  # [B, N]
+
+            # Step 3: weighted sum → [B, D]
+            pooled = torch.bmm(attn_weights.unsqueeze(1), x).squeeze(1)  # [B, D]
+            return pooled
+
+        else:
+            raise ValueError(f"Unknown pooling strategy: {self._pooling}")
+        
     def predict(
         self,
         past_ids: torch.Tensor,
@@ -288,20 +272,4 @@ class GCNBaseline(SequentialEncoderWithLearnedSimilarityModule):
         )  # [B, D]
 
         return self.interaction(user_embeddings, target_ids)  # [B, X]
-
-
-    def _pool(self, lengths: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
-        """
-        Pooling over the sequence dimension [B, N, D] → [B, D]
-        """
-        if self._pooling == "last":
-            return get_gcn_current_embeddings(lengths, x)
-        elif self._pooling == "mean":
-            mask = torch.arange(x.size(1), device=lengths.device)[None, :] < lengths[:, None]
-            return (x * mask.unsqueeze(-1).float()).sum(1) / lengths.unsqueeze(1).clamp(min=1)
-        elif self._pooling == "sum":
-            mask = torch.arange(x.size(1), device=lengths.device)[None, :] < lengths[:, None]
-            return (x * mask.unsqueeze(-1).float()).sum(1)
-        else:
-            raise ValueError(f"Unknown pooling strategy: {self._pooling}")
 
