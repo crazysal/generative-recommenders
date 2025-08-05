@@ -13,11 +13,11 @@ train_fn.item_embedding_dim = 50
 train_fn.dropout_rate = 0.2  # For input features or global dropout (optional)
 
 # GCN-specific encoder config (mapped in model constructor)
-train_fn.gcn_encoder.hidden_dim = 256         # Used in first GCN layer
-train_fn.gcn_encoder.dropout_rate = 0.1       # Applied after ReLU
+gcn_encoder.hidden_dim = 256         # Used in first GCN layer
+gcn_encoder.dropout_rate = 0.1       # Applied after ReLU
 
 # Pooling strategy
-train_fn.pooling = "last"                     # Options: last, mean, sum
+gcn_encoder.pooling = "last"                     # Options: last, mean, sum
 
 # Training
 train_fn.num_epochs = 101

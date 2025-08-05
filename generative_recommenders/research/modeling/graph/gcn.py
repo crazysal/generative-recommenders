@@ -3,13 +3,54 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Dict, Optional
 
-from generative_recommenders.research.modeling.sequential.embedding_modules import EmbeddingModule
-from generative_recommenders.research.modeling.sequential.input_features_preprocessors import InputFeaturesPreprocessorModule
-from generative_recommenders.research.modeling.sequential.output_postprocessors import OutputPostprocessorModule
-from generative_recommenders.research.modeling.similarity_module import SequentialEncoderWithLearnedSimilarityModule
+from generative_recommenders.research.modeling.sequential.embedding_modules import (
+    EmbeddingModule,
+)
+from generative_recommenders.research.modeling.sequential.input_features_preprocessors import (
+    InputFeaturesPreprocessorModule,
+)
+from generative_recommenders.research.modeling.sequential.output_postprocessors import (
+    OutputPostprocessorModule,
+)
+from generative_recommenders.research.modeling.sequential.utils import (
+    get_current_embeddings,
+)
+from generative_recommenders.research.modeling.similarity_module import (
+    SequentialEncoderWithLearnedSimilarityModule,
+)
 from generative_recommenders.research.rails.similarities.module import SimilarityModule
-from generative_recommenders.research.modeling.sequential.utils import get_current_embeddings
 
+'''
+GCNBaseline(
+  (_ndp_module): DotProductSimilarity()
+  (_embedding_module): LocalEmbeddingModule(
+    (_item_emb): Embedding(3953, 50, padding_idx=0)
+  )
+  (_input_features_preproc): LearnablePositionalEmbeddingInputFeaturesPreprocessor(
+    (_pos_emb): Embedding(211, 50)
+    (_emb_dropout): Dropout(p=0.2, inplace=False)
+  )
+  (_output_postproc): L2NormEmbeddingPostprocessor()
+  (gcn_layers): ModuleList(
+    (0): Linear(in_features=50, out_features=256, bias=True)
+    (1): Linear(in_features=256, out_features=50, bias=True)
+  )
+  (relu): ReLU()
+  (dropout): Dropout(p=0.1, inplace=False)
+)
+GCNBaseline(embedding_dim=50, hidden_dim=256, pooling='last')
+
+🧠 Model Summary:
+_embedding_module._item_emb.weight                           | [3953, 50] | 197650 params
+_input_features_preproc._pos_emb.weight                      | [211, 50] | 10550 params
+gcn_layers.0.weight                                          | [256, 50] | 12800 params
+gcn_layers.0.bias                                            | [256] | 256 params
+gcn_layers.1.weight                                          | [50, 256] | 12800 params
+gcn_layers.1.bias                                            | [50] | 50 params
+
+🔢 Total Trainable Parameters: 234,106
+
+'''
 
 def normalize_adjacency(adj: torch.Tensor) -> torch.Tensor:
     """
@@ -82,7 +123,7 @@ class GCNBaseline(SequentialEncoderWithLearnedSimilarityModule):
         return (
             f"GCNBaseline("
             f"embedding_dim={self._embedding_dim}, "
-            f"hidden_dim={self.gcn1.out_features}, "
+            f"hidden_dim={self.gcn_layers[0].out_features}, "
             f"pooling='{self._pooling}'"
             f")"
         )

@@ -1,18 +1,24 @@
 from typing import Optional, Dict
 import torch
 from torch import nn, Tensor
-from generative_recommenders.models.base import (
-    SequentialEncoderWithLearnedSimilarityModule,
+
+
+from generative_recommenders.research.modeling.sequential.embedding_modules import (
+    EmbeddingModule,
 )
-from generative_recommenders.models.embedding.base import EmbeddingModule
-from generative_recommenders.models.input_preproc.base import (
+from generative_recommenders.research.modeling.sequential.input_features_preprocessors import (
     InputFeaturesPreprocessorModule,
 )
-from generative_recommenders.models.output_postproc.base import (
+from generative_recommenders.research.modeling.sequential.output_postprocessors import (
     OutputPostprocessorModule,
 )
-from generative_recommenders.models.interaction.base import SimilarityModule
-from generative_recommenders.utils.sequence_utils import get_current_embeddings
+from generative_recommenders.research.modeling.sequential.utils import (
+    get_current_embeddings,
+)
+from generative_recommenders.research.modeling.similarity_module import (
+    SequentialEncoderWithLearnedSimilarityModule,
+)
+from generative_recommenders.research.rails.similarities.module import SimilarityModule
 
 
 class MLPBaseline(SequentialEncoderWithLearnedSimilarityModule):

@@ -22,7 +22,7 @@ import time
 
 from datetime import date
 from typing import Dict, Optional
-
+import tqdm
 import gin
 
 import torch
@@ -49,6 +49,8 @@ from generative_recommenders.research.modeling.sequential.embedding_modules impo
 from generative_recommenders.research.modeling.sequential.encoder_utils import (
     get_sequential_encoder,
 )
+from generative_recommenders.research.modeling.graph.features import seq_features_from_row 
+
 from generative_recommenders.research.modeling.sequential.features import (
     movielens_seq_features_from_row,
 )
@@ -330,18 +332,32 @@ def train_fn(
 
     batch_id = 0
     epoch = 0
-    for epoch in range(num_epochs):
+    for epoch in tqdm.tqdm(range(num_epochs)):
         if train_data_sampler is not None:
             train_data_sampler.set_epoch(epoch)
         if eval_data_sampler is not None:
             eval_data_sampler.set_epoch(epoch)
         model.train()
         for row in iter(train_data_loader):
-            seq_features, target_ids, target_ratings = movielens_seq_features_from_row(
+            # print('===row---')
+            # for r in row : 
+            #     print(r, row[r].shape)
+            # seq_features, target_ids, target_ratings = movielens_seq_features_from_row(
+            seq_features, target_ids, target_ratings = seq_features_from_row(
                 row,
                 device=device,
                 max_output_length=gr_output_length + 1,
             )
+            # print('===seq_features---')
+            # s1, s2, s3, s4 = seq_features  
+            # print('past_lengths', s1.shape)
+            # print('past_ids', s2.shape)
+            # for p in s4 : 
+            #     print(p, s4[p].shape)
+            
+                
+            # print('target_ids', target_ids.shape)
+            # print('target_ratings', target_ratings.shape)
 
             if (batch_id % eval_interval) == 0:
                 model.eval()
@@ -486,7 +502,8 @@ def train_fn(
             float_dtype=torch.bfloat16 if main_module_bf16 else None,
         )
         for eval_iter, row in enumerate(iter(eval_data_loader)):
-            seq_features, target_ids, target_ratings = movielens_seq_features_from_row(
+            # seq_features, target_ids, target_ratings = movielens_seq_features_from_row(
+            seq_features, target_ids, target_ratings = seq_features_from_row(
                 row, device=device, max_output_length=gr_output_length + 1
             )
             eval_dict = eval_metrics_v2_from_tensors(

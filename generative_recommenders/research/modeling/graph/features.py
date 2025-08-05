@@ -1,5 +1,6 @@
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional, NamedTuple
 import torch
+import torch.nn.functional as F
 
 class SequentialFeatures(NamedTuple):
     past_lengths: torch.Tensor        # [B]
@@ -63,7 +64,12 @@ def seq_features_from_row(
 
     # If graph adjacency is available, include it
     if "adj_matrix" in row:
-        past_payloads["adj_matrix"] = row["adj_matrix"].to(device)  # [B, N, N]
+        adj = row["adj_matrix"].to(device)  # [B, N, N]
+        B_, N_, _ = adj.shape
+        if max_output_length > 0:
+            adj = F.pad(adj, (0, max_output_length, 0, max_output_length), value=0.0)
+            
+        past_payloads["adj_matrix"] =  adj
 
     features = SequentialFeatures(
         past_lengths=historical_lengths,

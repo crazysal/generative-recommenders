@@ -46,6 +46,7 @@ def gcn_encoder(
     hidden_dim: int = 256,
     dropout_rate: float = 0.1,
     verbose: bool = False,
+    pooling: str = 'last',
 ) -> SequentialEncoderWithLearnedSimilarityModule:
     return GCNBaseline(
         max_sequence_len=max_sequence_length,
@@ -58,6 +59,7 @@ def gcn_encoder(
         input_features_preproc_module=input_preproc_module,
         output_postproc_module=output_postproc_module,
         verbose=verbose,
+        pooling=pooling,
     )
 
 
